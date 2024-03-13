@@ -522,6 +522,110 @@ await contract.unlock('0xc07a228bd67b8bdfc343b911d02fb5fb')
 The first command gives the required key, which is 32 bytes. However, in the challenge contract, we can see that the key that is taken as input to unlock the contract is 16 bytes. This can easily be achieved by choosing the first 16 bytes of the key we found. Now, 32 bytes hex means we have got 64 characters plus the '0x' at the begining. So, to choose the first 16 bytes, we will need the first 34 characters of the key string (2character for '0x' + 32 characters for the first 16 bytes). So, we have stores the retrieved string in a variable, and sliced it to get the first 34 characters, which is then passed to the unlock function to complete the challenge.
 
 ___
+## Level 13 [Gatekeeper One]
+
+This is a comparatively challenging level. The challenge is to pass the all the require statements given in the 3 function modifiers and register as an entrant.
+
+The first modifier - Gate one, is as follows -
+
+```solidity
+  modifier gateOne() {
+    require(msg.sender != tx.origin);
+    _;
+  }
+```
+This an easy check that can be passed simply by using an intermediary contract to make the function calls, instead of calling the functions directly.
+
+The second modifier - Gate two, is as follows -
+
+```solidity
+  modifier gateTwo() {
+    require(gasleft() % 8191 == 0);
+    _;
+  }
+```
+gasleft() is a global function that returns the gas left at a point Now, the requirement here is that the gas left must be a multiple of 8191. So, we can make a gas equation as follows -
+
+`total gas = (8191 * any constant) + gas utilized till gate 2`
+
+We can use any constant value with 8191 so that the remaining gas is a multiple of 8191. I have used 3. Now, we can simply brute force for the 'gas utilized till gate 2' value to get the value of total gas required, which can be passed to the call to the `enter()` function.
+
+The third modifier - Gate three, is as follows -
+
+```solidity
+  modifier gateThree(bytes8 _gateKey) {
+      require(uint32(uint64(_gateKey)) == uint16(uint64(_gateKey)), "GatekeeperOne: invalid gateThree part one");
+      require(uint32(uint64(_gateKey)) != uint64(_gateKey), "GatekeeperOne: invalid gateThree part two");
+      require(uint32(uint64(_gateKey)) == uint16(uint160(tx.origin)), "GatekeeperOne: invalid gateThree part three");
+    _;
+  }
+```
+
+Things become a bit complex here due to multiple type casting operations. Let's go over the require statements individually.
+
+Let's say that the required input is,
+_gatekey = 8 bytes (16 hex characters , since 2 characters = 1 byte) = `0x B1 B2 B3 B4 B5 B6 B7 B8`
+
+Requirement [1] - `uint32(uint64(_gateKey)) == uint16(uint64(_gateKey))`
+uint64 = 64 bits, and 8 bits = 1 byte, hence 64 bits = 8 bytes
+So, uint64(_gateKey) = Numeric representation of the gatekey (no data is added or lost)
+Now, uint32(uint64) means half of the data will be lost from the left (begining) = `B5 B6 B7 B8`
+Similarly, uint16(uint64) means 3/4 th data will be lost from the starting = `B7 B8` (16 bits = 2 bytes = only the last 2 bytes will be retained)
+So, according to the require statement,
+`B5 B6 B7 B8 = 00 00 B7 B8` (0 is padded in the beginning for equality)
+Therefore, B5 B6 should be 0s *#1ST REQUIREMENT*
+
+Requirement [2] - `uint32(uint64(_gateKey)) != uint64(_gateKey)`
+uint32(uint64(_gateKey)) != uint64(_gateKey)
+=> B5 B6 B7 B8 != B1 B2 B3 B4 B5 B6 B7 B8 
+=> 00 00 00 00 B5 B6 B7 B8 != B1 B2 B3 B4 B5 B6 B7 B8 (0 is padded in the beginning for equality)
+So, to fulfill the require statement, B1 B2 B3 B4 must not be 0s *#2ND REQUIREMENT*
+I have used the numerical representation of my wallet's address for these bytes in the solution, using the `&` operator.
+
+Requirement [3] - `uint32(uint64(_gateKey)) == uint16(uint160(tx.origin))`
+Ethereum addresses are 40 hex characters = 20 bytes, and, 160 bits = 20 bytes.
+So, uint160(tx.origin) = Numeric representation of our wallet's address.
+Then, uint16(uint160(tx.origin)) = Last 2 bytes of our address converted to uint.
+So, uint32(uint64(_gateKey)) == uint16(uint160(tx.origin))
+=> B5 B6 B7 B8 = Last 2 bytes of our address
+Since B5 and B6 are 0s from the first requirement, B7 B8 = Last 2 bytes of our address *#3RD REQUIREMENT*
+
+To summarise, if our gate key is of the form `0x B1 B2 B3 B4 B5 B6 B7 B8`
+Requirement [1] - B5 B6 should be 0s
+Requirement [2] - B1 B2 B3 B4 must not be 0s
+Requirement [3] - B7 B8 = Last 2 bytes of our address
+
+So, using the bitwise `&` operation, te gatekey can be obtained as follows -
+`bytes8 gatekey = bytes8(uint64(uint160(tx.origin))) & 0xFFFFFFFF0000FFFF`
+
+Find th comple solution contract below -
+
+```solidity
+contract hack {
+
+  function attack (address _target) public {
+
+    bytes8 gatekey = bytes8(uint64(uint160(tx.origin))) & 0xFFFFFFFF0000FFFF;
+
+    for (uint64 i; i<=300; i++) { //brute-forcing for the value of i
+      uint256 totalgas = i + (8191 * 3);
+      (bool result, ) = _target.call{gas: totalgas}(abi.encodeWithSignature("enter(bytes8)", gatekey));
+
+      if (result){
+        break;
+      }
+    }
+  }
+}
+```
+
+If we pass the instance address as _target, and call the attack function, we can easily complete the challenge.
+
+___
+## Level 14 [Gatekeeper Two]
+
+
+
 ## Level 21 [Shop]
 
 This idea behind this level is similar to level 11 [Elevator].
