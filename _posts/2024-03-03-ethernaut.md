@@ -624,6 +624,81 @@ If we pass the instance address as _target, and call the attack function, we can
 ___
 ## Level 14 [Gatekeeper Two]
 
+This level is similar to the last level, and consists of three gates again which needs to be pased to register as an entrant. Let us go over each gate given in the form of function modifiers individually.
+
+The first modifier - Gate one, is as follows -
+
+```solidity
+  modifier gateOne() {
+    require(msg.sender != tx.origin);
+    _;
+  }
+```
+This is same as the last level. We need to use an intermediary contract to call the `enter()` function, so that msg.sender and tx.origin are not equal.
+
+The second modifier - Gate two, is as follows -
+
+```solidity
+  modifier gateTwo() {
+    uint x;
+    assembly { x := extcodesize(caller()) }
+    require(x == 0);
+    _;
+  }
+```
+
+As mentioned in the information about the challenge, "The extcodesize call in this gate will get the size of a contract's code at a given address". And to pass this gate, we need that size to be 0 which sounds impossible as our hack contract is going to have code in it and it's size can never be zero. However, this can be overcome using a very simple solidity perk. When a contract is being created, i.e. the constructor is being executed, the contract is given an address, but it practically doesn't have any size until the execution is completed and the block is accepted. So, if we perform the check in question inside the constructor, it will pass.
+
+The third modifier - Gate three, is as follows -
+
+```solidity
+  modifier gateThree(bytes8 _gateKey) {
+    require(uint64(bytes8(keccak256(abi.encodePacked(msg.sender)))) ^ uint64(_gateKey) == type(uint64).max);
+    _;
+  }
+```
+This modifier is comparatively complicatedand is performing some checks using the bitwise XOR `^` operator.
+Let's go through a quick refresher on this.
+
+An XOR operator returns true when we have got dissimilar inputs.
+Example -
+`1 ^ 0 = 1`,
+`0 ^ 1 = 1`,
+`1 ^ 1 = 0`,
+`0 ^ 0 = 0`
+
+So, using this concept, we can say, `a ^ a = 0` (since they will be same)
+Now, `a ^ a ^ b = 0 ^ b = b` (If b is 0, 0 ^ 0 = 0, also, if b is 1, 0 ^ 1 = 1)
+
+Now, let's say,
+`uint64(bytes8(keccak256(abi.encodePacked(msg.sender)))) = address`,
+`uint64(_gateKey) = key` and,
+`type(uint64).max = max`
+
+The requirement in gate 3 is, `address ^ key == max`
+
+So, using the above concept, if we use `key = address ^ max`,
+`address ^ key = address ^ address ^ max = max`, which satisfies our require statement.
+
+Now the key is bytes8, so we can simply convert  it to bytes8 and pass it as the argument. Also, the challenge contract is performing the check usin msg.sender, which will basically be the address of our contract, so to generate the key, I have used `address(this)` instead of `msg.sender`.
+
+`bytes8 key = bytes8(uint64(bytes8(keccak256(abi.encodePacked(address(this))))) ^ type(uint64).max)`
+
+Find the hack contract below -
+
+```solidity
+contract hack {
+    constructor (GatekeeperTwo target) {
+
+        bytes8 key = bytes8(uint64(bytes8(keccak256(abi.encodePacked(address(this))))) ^ type(uint64).max);
+        require(target.enter(key), "challenge failed");
+    }
+}
+```
+
+Once we deploy the hack contract by passing the instance address, we will be able to register as an entrant, hence win the challenge.
+
+NOTE - `assembly { x := extcodesize(caller()) }` is often used to check if the caller is an EOA (Externally Owned Account) or a contract account. since EOAs will always return the size as 0. But, this check can be easily bypassed by doing what we did to pass gate one in this level. So, using `extcodesize` to perfor these checks should always be avoided.
 
 
 ## Level 21 [Shop]
