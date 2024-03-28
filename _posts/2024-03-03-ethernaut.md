@@ -700,7 +700,18 @@ Once we deploy the hack contract by passing the instance address, we will be abl
 
 NOTE - `assembly { x := extcodesize(caller()) }` is often used to check if the caller is an EOA (Externally Owned Account) or a contract account. since EOAs will always return the size as 0. But, this check can be easily bypassed by doing what we did to pass gate one in this level. So, using `extcodesize` to perfor these checks should always be avoided.
 
+___
+## Level 15 [Naughtcoin]
 
+This is a fairly simple challenge involving an ERC20 token. To complete this challenege, we will need to transfer all the tokens that we own to someone else, but the catch is that there is a timelock applied on the `transfer()` function that prevents us from transferring any token before 10 years.
+
+ERC20 (Ethereum Request for Comment) is basically a standard for tokens. We have multiple functions to help us in handling these so called tokens. For this challenge we are particularly interested in the Transfer, TransferFrom and Approve function.
+
+In the challenge contract, a timelock has been imposed on the `transfer()` function, so, we are unable to use it to transfer any tokens. However, we can easily transfer tokens from a smart contract in the ERC20 standard using the `transferfrom()` funtion. Transferfrom allows another person to transfer tokens from a  smart contract on our behalf. We just need to approve our account to transfer the required amount.
+
+I have completed this challenge without using any hack contract. I deployed the challenge contract after changing the address of the ERC20 library to the global link (github link of the library) at the instance address. Then approved our account to spend the total balance of tokens using the `approve()` function, and then used the `transferFrom()` function to transfer the total balance from our account to a random account in the sepolia testnet, changing our balance to 0.
+
+___
 ## Level 21 [Shop]
 
 This idea behind this level is similar to level 11 [Elevator].
