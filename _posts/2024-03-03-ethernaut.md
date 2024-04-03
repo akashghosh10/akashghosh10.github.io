@@ -712,6 +712,111 @@ In the challenge contract, a timelock has been imposed on the `transfer()` funct
 I have completed this challenge without using any hack contract. I deployed the challenge contract after changing the address of the ERC20 library to the global link (github link of the library) at the instance address. Then approved our account to spend the total balance of tokens using the `approve()` function, and then used the `transferFrom()` function to transfer the total balance from our account to a random account in the sepolia testnet, changing our balance to 0.
 
 ___
+## Level 16 [Preservation]
+
+This a fairly complicated challenge in comparison to the others. The goal of this challenge is to claim ownership of the challenge contract. However, this will appear impossible, since the owner variable is set during using a constructor when the contract is deployed, and is not updated anywhere else in the contract. But, if we look closely, this can be achieved by exploiting the delegatecalls used inside the the two methods of the contract.
+
+The contract has two methods, namely, `setFirstTime()` and `setSecondTime()`. These methods delegatecalls a method defined in another external contract whose address is stored in the variables `timeZone1Library` and `timeZone1Library`. The external contract has a single variable in it, and the method defined updates that variable. But, we have to remember that delegate is used to run a piece of code in context of the contract the makes the call. So, when our challenge contract delegate calls the external contract, instead of updateing the variable of the external contract, the variable of the challenge contract will get updated using the code of the external contract. However, the catch here is that the storage order is not same in these contracts. This is what can be exploited here.
+
+To solve this challenge I have defined a hack contract, that has the same order of storage as the challenge contract. In the attack function, I am calling the `setFirstTime()` function twice. In the first call, the address of the hack contract is being converted uint256 and is passed as an argument, since this method will accept arguments of type `uint256` only. This in turn will make a delegate call to the external contract with the hack contract's address as the argument. Now, since the `storedTime` variable which get's updated in the external contract occupies the storage slot 0, when a delegate call is made to the external contract, the variable which is defined in slot 0 in the challenge contract, i.e. the first variable defined in the challenge contract will get updated, and it will now be holding the hack contract's address instead of the external contract's address. I have also defined another function in the hack contract with the same signature as the function, i.e. `setTime()` which is being delegate called in the challenge contract. So, when the `setFirstTime()` function is called for the second time in the attack function, it will call the `setFirstTime()` function in the challenge contract which will delegate call the `setTime()` function. But, instead of calling the `setTime()` function defined in the external contract, the same function defined in the hack contract will be called this time, since the address of the external contract was updated to the hack contract's address previously. The `setTime()` defined in the hack contract updates owner variable, and sice the storage order of the hack contract is same as that of the challenge contract, the owner variable of the challeneg contract will get updated with `msg.sender` which is our wallet's address, hence solving the challenge. Find below the hack contrcat along with the challenge contract -
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract hack {
+  address public timeZone1Library;
+  address public timeZone2Library;
+  address public owner;
+
+  function attack(Preservation target) external {
+    target.setFirstTime(uint256(uint160(address(this))));
+    target.setFirstTime(uint256(uint160(msg.sender)));
+  }
+
+  function setTime(uint _owner) external {
+    owner = address(uint160(_owner));
+  }  
+}
+
+contract Preservation {
+
+  // public library contracts 
+  address public timeZone1Library;
+  address public timeZone2Library;
+  address public owner; 
+  uint storedTime;
+  // Sets the function signature for delegatecall
+  bytes4 constant setTimeSignature = bytes4(keccak256("setTime(uint256)"));
+
+  constructor(address _timeZone1LibraryAddress, address _timeZone2LibraryAddress) {
+    timeZone1Library = _timeZone1LibraryAddress; 
+    timeZone2Library = _timeZone2LibraryAddress; 
+    owner = msg.sender;
+  }
+ 
+  // set the time for timezone 1
+  function setFirstTime(uint _timeStamp) public {
+    timeZone1Library.delegatecall(abi.encodePacked(setTimeSignature, _timeStamp));
+  }
+
+  // set the time for timezone 2
+  function setSecondTime(uint _timeStamp) public {
+    timeZone2Library.delegatecall(abi.encodePacked(setTimeSignature, _timeStamp));
+  }
+}
+
+// Simple library contract to set the time
+contract LibraryContract {
+
+  // stores a timestamp 
+  uint storedTime;  
+
+  function setTime(uint _time) public {
+    storedTime = _time;
+  }
+}
+```
+
+We have to be very careful about the type conversions when passing the arguments to the functions. Notice the type conversions done in the function calls in the hack contract.
+
+___
+## Level 17 [Recovery]
+
+The level teaches us how the addresses are computed in ethernaut.
+
+Addresses are deterministic. The address of a contract that is being deployed is computed based on the sender's address and the nonce, i.e. the number of transactions made by the sender.
+
+`address of a contract = last 20 bytes (keccack256(RLP(sender address, nonce)))`
+
+According to [ethereum.org](https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp/), RLP stands for Recursive Length Prefix. Recursive Length Prefix (RLP) serialization is used extensively in Ethereum's execution clients. RLP standardizes the transfer of data between nodes in a space-efficient format. The purpose of RLP is to encode arbitrarily nested arrays of binary data, and RLP is the primary encoding method used to serialize objects in Ethereum's execution layer.
+
+For any number less than or equal to 127, the RLP is the number itself in hex. However, for addresses, they will definitely be
+larger than 127. So, to denote an address it is preceded by `0xd6, 0x94`.
+
+For example, if the nonce is 1, the address will be,
+
+`last 20 bytes (keccack256(RLP(0xd6, 0x94, <sender address>, 0x01))) = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), sender, bytes1(0x01))))))`
+
+Here, abi.encodePacked() is functioning as the RLP serializer.
+
+Find the helper contract to compute the address of any contract using the sender/deployer's address and the nonce, below -
+
+```solidity
+contract computeAddress {
+    function recover(address sender) external pure returns (address) {
+        address addr = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), sender, bytes1(0x01))))));
+        return addr;
+    }
+}
+```
+In the challenge, the recovery contract is acting as the token factory, while the simpletoken contract creates new tokens. So, the goal is to find the address of the simpletoken contract. Since, the recovery contract calls the simpletoken contract to create new tokens, we can pass the the recovery contract's address as an argument in the helper contract's function. Thenonce is taken as 1 here as the description of the challenge specifies that the address was lost after creating the first token, so we can understand that only one transaction was made to create the token.
+
+Once the address is computed, we can easily deploy the simpletoken contract in that address and call the destroy function to send all the ether to our wallet using remix.
+
+This challenge can also be completed simply by using [etherscan](https://sepolia.etherscan.io/) to inspect the address of the instance, which is basically the address of the recovery contract. From there, we can look at the internal transactions to find the address of the simpletoken contract.
+
+___
 ## Level 21 [Shop]
 
 This idea behind this level is similar to level 11 [Elevator].
