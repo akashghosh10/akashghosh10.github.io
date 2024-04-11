@@ -817,6 +817,86 @@ Once the address is computed, we can easily deploy the simpletoken contract in t
 This challenge can also be completed simply by using [etherscan](https://sepolia.etherscan.io/) to inspect the address of the instance, which is basically the address of the recovery contract. From there, we can look at the internal transactions to find the address of the simpletoken contract.
 
 ___
+## Level 18 [Magic Number]
+
+I had to struggle a bit with this challenge since I knew nothing about EVM bytecodes before solving this, and that is the key to solving this challenge. This will appear to be a very simple challenge at first, with a goal of simply calling a function named `whatIsTheMeaningOfLife()` that returns 42. Sounds simple right? But the catch is to do this using a contract which is very small in size, precisely, 10 bytes. This can easily be done using EVM opcodes to manually deploy the bytecode of a contract. To understand that, let us first have a brief introduction about how the magic black box behind everything that we have done so far, known as the Ethereum Virtual Machine works.
+
+Let's jump to the absolute baiscs of programming some of which we actually learned when we were kids. Programming languages are basically high level languages. So, when we write a smart contract using any language like solidity or vyper, we are writing the code using a high level language. However, when we say that we are 'compiling' the code, what we actually mean to say is that the code is getting converted to low-level language or Bytecode. The EVM functions in the exact same way.
+
+![Image Unavailable](https://miro.medium.com/v2/resize:fit:1100/format:webp/1*5Wrb7z3W6AMtjH6IKJYowg.jpeg)
+
+When we deploy a smart contract, the create contract transaction is sent to the EVM. The EVM compiles the contract code to create the bytecode. This bytecode will have two parts, the creation code which is executed only once while deploying the contract (so basically consisting of the constructor) followed by the runtime code, which is the main contract that runs everytime it is called. The bytecode is loaded on to the memory stack and the EVM starts initializing the contract using the creation code and then runs the runtime code. The runtime code is returned to the EVM storage (basically the blockchain).
+
+Now, whatever code we write in a smart contract, starting from initializing a variable to store a number to returning a stored value, everything has EVM opcodes each of size 1 byte associated with it. These opcodes make up the bytecode. So, to solve this challenge based on the above understanding, we will need to write the opcodes necessary for the contract creation and also the runtime code.
+
+Let's start with the runtime code.
+
+```
+PUSH1 0x2a
+PUSH1 0
+MSTORE
+PUSH1 0x20
+PUSH1 0
+RETURN
+```
+Since this is a stack based operation, we have to keep in mind that stacks operate based on the LIFO (Last In First Out) Principle. SO if we look at the above sequence of operations, `PUSH1` takes one argument and is used to push a number into the stack. `2a` is 42 in hexadecimal. So, the first PUSH is used to store 42, the second one to store 0. The `MSTORE` operation takes two arguments and stores the second argument in memory considering the first argument as an ofset to store the value in memory. The remaining operations are being used to return 32 bytes from the memory. This concludes the main part of the challenge, i.e. to return 42.
+
+When all of these operations are converted into opcodes, we get the following sequence of hex characters.
+
+`602a60005260206000f3`
+
+Here, every two characters are 1 byte each and represent each operation or the argument after the operation. For example, the opcode for PUSH1 is 60. So, the bytecode starts with `602a` to push 42 on to the stack. Similarly, all other operations have been converted to opcodes.
+
+Refer to the [EVM Opcode reference](https://ethereum.org/en/developers/docs/evm/opcodes/) sheet to create bytecode manually.
+
+Now that we have the runtime code, this can be deployed using the creation code. This is very similar to creating the bytecode for the runtime code.
+
+```
+PUSH10 0X602a60005260206000f3
+PUSH1 0
+MSTORE
+PUSH1 0x0a
+PUSH1 0x16
+RETURN
+```
+
+The first three operations are being used to store the runtime code into the stack. Now, when the runtime bytecode is stored as hex, it is padded with 0s on the left. To be precise, 22 bytes equivalent to 0s, since the next 10 bytes will store the runtime code, so making a total of 32 bytes. 22 in hex is `0x16` while 10 is `0x0a`. So, these arguments are passed to the `RETURN` operation to return 10 bytes from memory ofset by 22 bytes, to ignore the padded 0s.
+
+When all of these operations are converted into opcodes, we get the following sequence of hex characters.
+
+`69602a60005260206000f3600052600a6016f3`
+
+Now, find the hack contract below which is being used to deploy this bytecode manually using `assembly` and pass the address of the deployed contract as am argument to the `setSolver()` function of the challenge contract.
+
+```solidity
+contract hack {
+    constructor (MagicNum target) {
+        bytes memory bytecode = hex"69602a60005260206000f3600052600a6016f3";
+        address addr;
+        assembly {
+            
+            addr := create(0, add(bytecode, 0x20), 0x13)
+        }
+        require(addr != address(0));
+
+        target.setSolver(addr);
+    }
+}
+
+contract MagicNum {
+    address public solver;
+
+    constructor() {}
+
+    function setSolver(address _solver) public {
+        solver = _solver;
+    }
+}
+```
+
+The `create` function inside `assembly` is being used to deploy the contract bytecode. The second argument points to the start position in memory for the execution. The fisrt 32 bytes is used to store the length of the bytecode. Hence, we have ofset the starting of the code execution by 32 bytes (0x20 in hexadecimal). The last argument refers to the size of the bytecode that is to be deployed. Here, we have got 38 characters, meaning 19 bytes (two characters = 1 byte) which is `0x13` in hexadecimal. We make sure that the contract is deployed properly by checking the value of the address and making sure that it is not 0. Then it is passed to the `setSolver()` method of the challenge contract.
+
+___
 ## Level 21 [Shop]
 
 This idea behind this level is similar to level 11 [Elevator].
