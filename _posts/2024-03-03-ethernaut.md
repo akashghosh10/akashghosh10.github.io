@@ -897,6 +897,81 @@ contract MagicNum {
 The `create` function inside `assembly` is being used to deploy the contract bytecode. The second argument points to the start position in memory for the execution. The fisrt 32 bytes is used to store the length of the bytecode. Hence, we have ofset the starting of the code execution by 32 bytes (0x20 in hexadecimal). The last argument refers to the size of the bytecode that is to be deployed. Here, we have got 38 characters, meaning 19 bytes (two characters = 1 byte) which is `0x13` in hexadecimal. We make sure that the contract is deployed properly by checking the value of the address and making sure that it is not 0. Then it is passed to the `setSolver()` method of the challenge contract.
 
 ___
+## Level 19 [Alien Codex]
+
+This level exploits the fact that the EVM doesn't validate an array's ABI-encoded length vs its actual payload and the arithmetic underflow of array length. The goal of the challenge is to gain ownership of the contract. However, we are unable to see any owner variable. But, the challenge contract inherits from another contract 'ownable'.
+
+On inspecting the contracts abi, I found that the owner variable is stored in slot 0 of the contract. Additionally, the compiler version of the challenge contrcat is old and thus isn't protected to underflows and overflows. We can see that a bytes32 array named codex has been defined in the contract and a function `retract()` is also defined, which reduces the length of the array by 1. Again, in older versions of solidity array elements could be deleted by reducing the length of an array. Here, codex hasn't been changed anywhere in the contrcat, so it is empty. Now, if we reduce it's length by 1 by calling the `retract()` function, an underflow will occur since the length is 0, and the new length will become 2^256-1, meaning, it will occupy all the 2^256 slots of the entire smart contract's storage. But, to call the `retract()` function, the value of the `contact` variable must be 0. So, the first step should be to call the `makeContact()` function. Now, we an call the retract function. Once the codex array occupies the entire contrcat's storage, it will overlap with some of the slots which stores other declared variables, including the owner variable, which was stored in slot 0. So, now, if we are able to find out the index of the array in which the owner variable is stored, we can easily modify it using the `revise()` function. To do that, let us understand the storage layout of the contract.
+
+```
+Slot 0 = Owner (address - 20 bytes), contact (boolean - 1 byte)
+Slot 1 = length of the codex array
+
+Slot from which the array storage starts = keccack256(1), since the array is defined in the first slot
+
+Slot start = codex[0]
+Slot start + 1 = codex [1]
+Slot start + 2 = codex [2]
+Slot start + 2^256 - 1 = codex [2^256 - 1]
+
+Now, owner will be stored in slot 0. Let, i be the index of the array for that slot. So,
+
+codex[i] = slot start + i = slot 0
+         => start + i = 0
+         => i = 0 - start
+```
+
+`keccack256(<storage slot where the array has been declared>)` gives the slot from where the array elements are stored. So, in this case we have used `keccack256(1)` since the codex array is defined in slot 1. So, based on the above understanding, we can easily find the index of the codex array where the owner variable is stored due to the overlapping. Now, using the index we can easily pass our wallet's address to the `revise()` function to overwrite the owner variable.
+
+Find the hack contrcat below
+
+```solidity
+interface IAlienCodex {
+    function makeContact() external ;
+    function retract() external ;
+    function revise(uint256 i, bytes32 _content) external;
+}
+
+contract hack {
+    constructor(IAlienCodex target) {
+        target.makeContact();
+        target.retract();
+
+        uint256 start = uint256(keccak256(abi.encode(uint256(1))));
+        uint256 i;
+        unchecked {
+            i -= start;
+        }
+
+        target.revise(i, bytes32(uint256(uint160(msg.sender))));
+    }
+}
+```
+
+Note that I have used the unchecked block here, since `0-start` won't be possible as in the newer solidity versions, underflow is not allowed. But this can be achieved using the unchecked block.
+
+___
+## Level 20 [Denial]
+
+This level is fairly simple. The goal of the challenge is to deny the owner withdrawing funds from the contract.
+
+The only way to withdraw funds from the contract is to use the `withdraw()` function. When this function is called, the amount that is to be sent is calculated. Then, this amount is transferred to the partner which can be set using the `setWithdrawPartner()` function and after that the same amount is transferred to the owner too. So, to stop the owner from withdrawing funds, we have to somehow revert or stop the code execution after ether is sent to the partner. So, someone might think of applying the same exploit we applied for level 9 here, but that won't work because ether was transferred using the `transfer()` function there which reverts if the transaction fails. However here, `call()` has been used to transfer ether to the partner. `call()` always returns two values after the transaction is completed, the first one being a boolean value denoting if the transaction was successful or not, and it is a good practice to always perform this check, since even if the call fails, the transaction won't be reverted and any remaining code will also be executed. This is one of the primary differences between `transfer()` and `call()`. But, here one of denying the owner from withdrawing any ether is by consuming all of the gas in the call to the partner contract. So, in the hack contract, I have simply used an infinite while loop that will consume all the gas, inside the fallback function, so that it is triggered when ether is sent to the partner contract. Find the hack contract below -
+
+```solidity
+contract hack {
+    constructor (Denial target) {
+        target.setWithdrawPartner(address(this));
+    }
+
+    fallback () external payable {
+        while (true) {}
+    }
+}
+```
+
+Once we deploy the hack contract and submit the instance, ethernaut will try to withdraw ether from the contract, and since the partner variable stores the address of the hack contract, the infinite loop will be triggered as explained above consuming all of the gas, hence denying the owner from completing the transaction.
+
+___
 ## Level 21 [Shop]
 
 This idea behind this level is similar to level 11 [Elevator].
@@ -921,7 +996,7 @@ contract Shop {
 }
 ```
 
-The goal is to set the value of the price variable to a number less than 100. And, looking at the `buy()` function, our first idea would be to implement the same logic that we did for Level 11, i.e., we create a function `price()` and a variable count, and we update the value of count in every call of the function, so that, when the function is called the 2nd time, we can return a different value than what we did for the first call. However, there is a minor problem. In the interface declared in the challenge contract, the function `price()` is defined as `view` which means we can't make any changes to state variables. So, if a variable count is declared, there will be a conflict here, hence this logiccan't be implemented. But, notice the `isSold` variable. It's value changes after the first call to the `price()` function, hence this variable can be used to perform the checks based on which we can decide the output of the `price()` function.
+The goal is to set the value of the price variable to a number less than 100. And, looking at the `buy()` function, our first idea would be to implement the same logic that we did for Level 11, i.e., we create a function `price()` and a variable count, and we update the value of count in every call of the function, so that, when the function is called the 2nd time, we can return a different value than what we did for the first call. However, there is a minor problem. In the interface declared in the challenge contract, the function `price()` is defined as `view` which means we can't make any changes to state variables. So, if a variable count is declared, there will be a conflict here, hence this logic can't be implemented. But, notice the `isSold` variable. It's value changes after the first call to the `price()` function, hence this variable can be used to perform the checks based on which we can decide the output of the `price()` function.
 
 Find the attack contract below -
 
