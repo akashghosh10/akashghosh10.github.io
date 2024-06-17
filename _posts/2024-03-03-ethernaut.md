@@ -2,6 +2,8 @@
 title: Ethernaut Solutions
 date:  2024-03-03 19:09:09
 mathjax: true
+categories:
+  - "CTF"
 tags:
   - "Ethereum"
   - "Solidity"
