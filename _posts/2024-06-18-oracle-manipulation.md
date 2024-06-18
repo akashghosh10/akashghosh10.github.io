@@ -85,4 +85,4 @@ Protocols should always refrain from using liquidity pools as oracles since they
 
 Uniswap which is actually a liquidity pool has employed something known as TWAP (Time Weighted Average Price), which uses the price of tokens in a series of previous blocks to determine the current price, preventing attackers from using flash loans to manipulate prices.
 
-From an inverstors point of view, one should always check if proper tests have been done and review the code carefully, before staking any money in a protocol.
+From an investors point of view, one should always check if proper tests have been done and review the code carefully, before staking any money in a protocol.
