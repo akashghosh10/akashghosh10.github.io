@@ -54,7 +54,7 @@ ___
 
 An oracle acts as a middle man between on-chain smart contracts and off-chain services or events. Often, smart contracts rely on off-chain data to make decisions. It can be the price of tokens for a lending protocol, weather data or even sports results for a betting platform. These intermediaries help in procuring this off-chain data and incorporating it to trigger on-chain smart contracts.
 
-![Image Unavailable](images\oracle definition.png)
+![Image Unavailable](/images/oracle-definition.png)
 
 ## The Vulnerability
 
@@ -65,17 +65,17 @@ Although very essential, using an oracle can turn into a nightmare if used witho
 **Step-3** The token with the inflated price is used as collateral in a lending protocol which also derives the price of the token from the same decentralized exchange mentioned above, to borrow a large sum of another token. Since the collateral token has an inflated price, it is overvalued, and the hacker enters an insolvent position, hence walking away with a lot of money.
 **Step-4** A part of the tokens borrowed is used to repay the flash loan.
 
-![Image Unavailable](images\oracle manipulation walkthrough.png)
+![Image Unavailable](/images/oracle-manipulation-walkthrough.png)
 
 ## Uwulend
 
 On June 10th a very similar attack to what is explained above was orchestrated on the popular lending protocol uwulend. The fallback oracle used by Uwulend incorporates a number of curve pools to determine the curent price of a token. The attacker took a flash loan from Tornado Cash to manipulate the price of the tokens in these pools. The attacker borrowed sUSDe at *0.99* and liquidated the position at *1.03*.
 
-![Image Unavailable](images\Uwulend-exploit-transactions.png)
+![Image Unavailable](/images/Uwulend-exploit-transactions.png)
 
 The stolen funds were siphoned to two addresses. And, in a comical turn of events, a mysterious person even sent an on-chain message to the attacker advising him on how he can safely withdraw his funds keeping his identity a secret.
 
-![Image Unavailable](images\uwulend-attacker-message.png)
+![Image Unavailable](/images/uwulend-attacker-message.png)
 
 However, a protocol which was audited and declared as safe by Peckshield raises a lot of questions. The github page of the protocol doesn't showcase any tests and the involvement of the creator, 0xSifu, with a lot of prior hacks is a real red flag.
 
