@@ -61,8 +61,11 @@ An oracle acts as a middle man between on-chain smart contracts and off-chain se
 Although very essential, using an oracle can turn into a nightmare if used without caution. Since they provide off-chain data, smart contracts that rely on this data can be manipulated easily by hackers. Find the walkhrough of a generic oracle manipulation attack below -
 
 **Step-1** The hacker borrows a large sum of money using a flash loan.
+
 **Step-2** This money is then used to make a large swap in a decentralized exchange which inflates the price of a token in the liquidity pool. 
+
 **Step-3** The token with the inflated price is used as collateral in a lending protocol which also derives the price of the token from the same decentralized exchange mentioned above, to borrow a large sum of another token. Since the collateral token has an inflated price, it is overvalued, and the hacker enters an insolvent position, hence walking away with a lot of money.
+
 **Step-4** A part of the tokens borrowed is used to repay the flash loan.
 
 ![Image Unavailable](/images/oracle-manipulation-walkthrough.png)
